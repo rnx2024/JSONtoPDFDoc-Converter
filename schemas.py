@@ -1,13 +1,13 @@
-from typing import Optional, List, Any
+from typing import Any, Literal
 from pydantic import BaseModel
 
 class Section(BaseModel):
-    heading: Optional[str] = None
-    type: str  # "paragraph" | "table" | "list"
-    text: Optional[str] = None
-    rows: Optional[List[List[Any]]] = None
-    items: Optional[List[Any]] = None
+    heading: str | None = None
+    type: Literal["paragraph", "table", "list", "kv"]
+    text: str | None = None
+    rows: list[list[Any]] | None = None
+    items: list[Any] | dict[str, Any] | None = None
 
 class StructuredDoc(BaseModel):
-    title: Optional[str] = None
-    sections: List[Section]
+    title: str | None = None
+    sections: list[Section]

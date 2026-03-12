@@ -1,7 +1,8 @@
+import io
 from typing import Dict, Any, Optional
 from docx import Document
+from docx.image.exceptions import UnrecognizedImageError
 from docx.shared import Inches
-import tempfile
 
 def render_docx_bytes(data: Dict[str, Any], title: str, img_path: Optional[str]) -> bytes:
     doc = Document()
@@ -10,7 +11,7 @@ def render_docx_bytes(data: Dict[str, Any], title: str, img_path: Optional[str])
     if img_path:
         try:
             doc.add_picture(img_path, width=Inches(6.0))
-        except Exception:
+        except (FileNotFoundError, UnrecognizedImageError, ValueError):
             pass
 
     if isinstance(data, dict) and "sections" in data and isinstance(data["sections"], list):
@@ -49,7 +50,6 @@ def render_docx_bytes(data: Dict[str, Any], title: str, img_path: Optional[str])
                 r = t.add_row().cells
                 r[0].text = str(k); r[1].text = str(v)
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as f:
-        doc.save(f.name)
-        f.seek(0)
-        return f.read()
+    output = io.BytesIO()
+    doc.save(output)
+    return output.getvalue()

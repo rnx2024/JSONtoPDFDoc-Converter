@@ -31,6 +31,21 @@ img {
 }
 """
 
+ALLOWED_IMAGE_MIME_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/svg+xml",
+    "image/webp",
+    "image/gif",
+}
+
+
+def _safe_image_mime_type(img_mime: Optional[str]) -> str:
+    if img_mime in ALLOWED_IMAGE_MIME_TYPES:
+        return img_mime
+    return "image/png"
+
+
 def render_flat_dict(data: Dict[str, Any]) -> str:
     """Fallback rendering if no structured schema is provided."""
     blocks: List[str] = []
@@ -93,12 +108,18 @@ def render_structured(sections: List[Dict[str, Any]]) -> str:
     return "\n".join(out)
 
 
-def json_to_html(data: Dict[str, Any], title: str, img_b64: Optional[str]) -> str:
+def json_to_html(
+    data: Dict[str, Any],
+    title: str,
+    img_b64: Optional[str],
+    img_mime: Optional[str],
+) -> str:
     """Main entrypoint: wrap title, optional image, and data into full HTML."""
     body_blocks = [f"<h1>{esc(title)}</h1>"]
 
     if img_b64:
-        body_blocks.append(f'<img alt="image" src="data:image/png;base64,{img_b64}"/>')
+        mime_type = _safe_image_mime_type(img_mime)
+        body_blocks.append(f'<img alt="image" src="data:{mime_type};base64,{img_b64}"/>')
 
     if isinstance(data, dict) and "sections" in data and isinstance(data["sections"], list):
         body_blocks.append(render_structured(data["sections"]))

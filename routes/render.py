@@ -1,17 +1,37 @@
-from fastapi import APIRouter, Form, File, UploadFile
-from starlette.responses import Response
+import os
 from typing import Optional
-import os, json
+
+from fastapi import APIRouter, File, Form, Request, UploadFile
+from starlette.responses import JSONResponse, Response
 
 from services.render_service import (
-    parse_json,
+    ServiceError,
     build_html,
-    render_pdf_response,
-    render_docx_response,
+    normalize_output,
+    parse_json_bytes,
+    parse_json_text,
+    render_docx_output_bytes,
+    render_pdf_bytes,
+    validate_image_for_output,
 )
 from utils.images import save_temp_upload
 
 router = APIRouter()
+
+
+def _error_response(
+    error: str,
+    status_code: int,
+    request_id: Optional[str],
+    detail: object = None,
+) -> JSONResponse:
+    body = {"error": error}
+    if request_id is not None:
+        body["request_id"] = request_id
+    if detail is not None:
+        body["detail"] = detail
+    return JSONResponse(body, status_code=status_code)
+
 
 @router.get("/health")
 async def health() -> dict:
@@ -20,58 +40,88 @@ async def health() -> dict:
 @router.post("/render")
 async def render(
     # Accept EITHER JSON text OR JSON file
+    request: Request,
     json_text: Optional[str] = Form(None),
     text: Optional[UploadFile] = File(None),
     output: str = Form(...),
     title: str = Form("Document"),
     image: Optional[UploadFile] = File(None),
-):
-    # Parse JSON
+) -> Response:
+    request_id = request.headers.get("x-request-id")
+
+    if text is not None and json_text is not None:
+        return _error_response(
+            error="MULTIPLE_JSON_INPUTS",
+            status_code=400,
+            request_id=request_id,
+        )
+
     try:
+        normalized_output = normalize_output(output)
+
         if text is not None:
             payload_bytes = await text.read()
-            data = json.loads(payload_bytes.decode("utf-8"))
+            data = parse_json_bytes(payload_bytes)
         elif json_text is not None:
-            data = parse_json(json_text)
+            data = parse_json_text(json_text)
         else:
-            return Response(
-                '{"error":"MISSING_JSON"}',
-                400,
-                media_type="application/json",
+            return _error_response(
+                error="MISSING_JSON",
+                status_code=400,
+                request_id=request_id,
             )
-    except Exception as e:
-        return Response(
-            f'{{"error":"INVALID_JSON","detail":"{str(e)}"}}',
-            400,
-            media_type="application/json",
+    except ServiceError as exc:
+        return _error_response(
+            error=exc.code,
+            status_code=exc.status_code,
+            request_id=request_id,
+            detail=exc.detail,
         )
 
     # Save image if provided
-    img_path, img_ext, img_b64 = save_temp_upload(image)
+    try:
+        img_path, img_ext, img_b64, img_mime = save_temp_upload(image)
+    except OSError as exc:
+        return _error_response(
+            error="IMAGE_UPLOAD_SAVE_FAILED",
+            status_code=500,
+            request_id=request_id,
+            detail=str(exc),
+        )
 
     try:
-        if output.lower() == "docx" and img_ext == ".svg":
+        validate_image_for_output(normalized_output, img_ext)
+
+        safe_title = title.strip() or "Document"
+
+        if normalized_output == "docx":
+            docx_bytes = render_docx_output_bytes(data, safe_title, img_path)
             return Response(
-                '{"error":"SVG_NOT_SUPPORTED_FOR_DOCX"}',
-                400,
-                media_type="application/json",
+                docx_bytes,
+                200,
+                headers={"Content-Disposition": f'attachment; filename="{safe_title}.docx"'},
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
 
-        html = build_html(data, title=title, img_b64=img_b64)
-
-        if output.lower() == "pdf":
-            return render_pdf_response(html, title)
-        elif output.lower() == "docx":
-            return render_docx_response(data, title, img_path)
-        else:
-            return Response(
-                '{"error":"INVALID_OUTPUT"}',
-                400,
-                media_type="application/json",
-            )
+        html = build_html(data, title=safe_title, img_b64=img_b64, img_mime=img_mime)
+        pdf_bytes = render_pdf_bytes(html)
+        return Response(
+            pdf_bytes,
+            200,
+            headers={"Content-Disposition": f'attachment; filename="{safe_title}.pdf"'},
+            media_type="application/pdf",
+        )
+    except ServiceError as exc:
+        return _error_response(
+            error=exc.code,
+            status_code=exc.status_code,
+            request_id=request_id,
+            detail=exc.detail,
+        )
     finally:
         if img_path and os.path.exists(img_path):
             try:
                 os.unlink(img_path)
-            except Exception:
+            except OSError:
+                # Temp file cleanup failure should not hide the response.
                 pass
