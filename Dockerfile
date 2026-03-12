@@ -43,6 +43,7 @@ RUN useradd -m -r -s /usr/sbin/nologin app
 
 # install wkhtmltopdf and fonts (runtime only)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl \
       wkhtmltopdf \
       fonts-dejavu \
       xfonts-base \
@@ -58,9 +59,9 @@ USER app
 
 EXPOSE 8000
 
-# optional healthcheck; adjust path if your app uses /health instead of /healthz
+# app exposes GET /health
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s CMD \
-  wget -qO- http://127.0.0.1:8000/healthz || exit 1
+  curl -fsS http://127.0.0.1:8000/health || exit 1
 
 # prefer uvicorn over the fastapi CLI
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
