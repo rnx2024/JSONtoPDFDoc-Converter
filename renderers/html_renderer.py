@@ -1,4 +1,5 @@
-from typing import Dict, Any, Optional, List
+from typing import Any
+
 from utils.sanitize import esc
 
 CSS = """
@@ -40,15 +41,15 @@ ALLOWED_IMAGE_MIME_TYPES = {
 }
 
 
-def _safe_image_mime_type(img_mime: Optional[str]) -> str:
+def _safe_image_mime_type(img_mime: str | None) -> str:
     if img_mime in ALLOWED_IMAGE_MIME_TYPES:
         return img_mime
     return "image/png"
 
 
-def render_flat_dict(data: Dict[str, Any]) -> str:
+def render_flat_dict(data: dict[str, Any]) -> str:
     """Fallback rendering if no structured schema is provided."""
-    blocks: List[str] = []
+    blocks: list[str] = []
     for k, v in data.items():
         k = str(k)
         if k == "h1":
@@ -72,8 +73,8 @@ def render_flat_dict(data: Dict[str, Any]) -> str:
             blocks.append(f"<p><strong>{esc(k)}:</strong> {esc(v)}</p>")
     return "\n".join(blocks)
 
-def render_structured(sections: List[Dict[str, Any]]) -> str:
-    out: List[str] = []
+def render_structured(sections: list[dict[str, Any]]) -> str:
+    out: list[str] = []
     for s in sections:
         heading = s.get("heading")
         typ = s.get("type")
@@ -92,7 +93,8 @@ def render_structured(sections: List[Dict[str, Any]]) -> str:
             rows = s.get("rows") or []
             thead = ""
             if headers:
-                thead = "<thead><tr>" + "".join(f"<th>{esc(h)}</th>" for h in headers) + "</tr></thead>"
+                header_cells = "".join(f"<th>{esc(h)}</th>" for h in headers)
+                thead = f"<thead><tr>{header_cells}</tr></thead>"
             body_rows = []
             for row in rows:
                 body_rows.append("<tr>" + "".join(f"<td>{esc(c)}</td>" for c in row) + "</tr>")
@@ -109,10 +111,10 @@ def render_structured(sections: List[Dict[str, Any]]) -> str:
 
 
 def json_to_html(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     title: str,
-    img_b64: Optional[str],
-    img_mime: Optional[str],
+    img_b64: str | None,
+    img_mime: str | None,
 ) -> str:
     """Main entrypoint: wrap title, optional image, and data into full HTML."""
     body_blocks = [f"<h1>{esc(title)}</h1>"]

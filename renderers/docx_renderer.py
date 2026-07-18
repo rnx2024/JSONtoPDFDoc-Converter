@@ -1,18 +1,19 @@
+import contextlib
 import io
-from typing import Dict, Any, Optional
+from typing import Any
+
 from docx import Document
 from docx.image.exceptions import UnrecognizedImageError
 from docx.shared import Inches
 
-def render_docx_bytes(data: Dict[str, Any], title: str, img_path: Optional[str]) -> bytes:
+
+def render_docx_bytes(data: dict[str, Any], title: str, img_path: str | None) -> bytes:
     doc = Document()
     doc.add_heading(title, level=1)
 
     if img_path:
-        try:
+        with contextlib.suppress(FileNotFoundError, UnrecognizedImageError, ValueError):
             doc.add_picture(img_path, width=Inches(6.0))
-        except (FileNotFoundError, UnrecognizedImageError, ValueError):
-            pass
 
     if isinstance(data, dict) and "sections" in data and isinstance(data["sections"], list):
         for s in data["sections"]:
@@ -37,18 +38,22 @@ def render_docx_bytes(data: Dict[str, Any], title: str, img_path: Optional[str])
     else:
         t = doc.add_table(rows=1, cols=2)
         hdr = t.rows[0].cells
-        hdr[0].text = "Key"; hdr[1].text = "Value"
+        hdr[0].text = "Key"
+        hdr[1].text = "Value"
         for k, v in (data or {}).items():
             if isinstance(v, dict):
                 sub = doc.add_table(rows=1, cols=2)
                 h = sub.rows[0].cells
-                h[0].text = str(k); h[1].text = ""
+                h[0].text = str(k)
+                h[1].text = ""
                 for kk, vv in v.items():
                     r = sub.add_row().cells
-                    r[0].text = str(kk); r[1].text = str(vv)
+                    r[0].text = str(kk)
+                    r[1].text = str(vv)
             else:
                 r = t.add_row().cells
-                r[0].text = str(k); r[1].text = str(v)
+                r[0].text = str(k)
+                r[1].text = str(v)
 
     output = io.BytesIO()
     doc.save(output)

@@ -1,9 +1,11 @@
+import contextlib
+import logging
 import os
-from typing import Optional
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from starlette.responses import JSONResponse, Response
 
+from config import limiter
 from services.render_service import (
     ServiceError,
     build_html,
@@ -14,7 +16,9 @@ from services.render_service import (
     render_pdf_bytes,
     validate_image_for_output,
 )
-from utils.images import save_temp_upload
+from utils.images import ImageValidationError, save_temp_upload
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -22,9 +26,12 @@ router = APIRouter()
 def _error_response(
     error: str,
     status_code: int,
-    request_id: Optional[str],
+    request_id: str | None,
     detail: object = None,
 ) -> JSONResponse:
+    # detail may echo back user-supplied content (e.g. JSON parse error context);
+    # keep it out of the server log, only the error code/status are logged.
+    logger.error("render failed request_id=%s error=%s status=%s", request_id, error, status_code)
     body = {"error": error}
     if request_id is not None:
         body["request_id"] = request_id
@@ -38,14 +45,15 @@ async def health() -> dict:
     return {"ok": True}
 
 @router.post("/render")
+@limiter.limit("10/minute")
 async def render(
     # Accept EITHER JSON text OR JSON file
     request: Request,
-    json_text: Optional[str] = Form(None),
-    text: Optional[UploadFile] = File(None),
+    json_text: str | None = Form(None),
+    text: UploadFile | None = File(None),
     output: str = Form(...),
     title: str = Form("Document"),
-    image: Optional[UploadFile] = File(None),
+    image: UploadFile | None = File(None),
 ) -> Response:
     request_id = request.headers.get("x-request-id")
 
@@ -81,6 +89,13 @@ async def render(
     # Save image if provided
     try:
         img_path, img_ext, img_b64, img_mime = save_temp_upload(image)
+    except ImageValidationError as exc:
+        return _error_response(
+            error="INVALID_IMAGE",
+            status_code=400,
+            request_id=request_id,
+            detail=str(exc),
+        )
     except OSError as exc:
         return _error_response(
             error="IMAGE_UPLOAD_SAVE_FAILED",
@@ -96,6 +111,7 @@ async def render(
 
         if normalized_output == "docx":
             docx_bytes = render_docx_output_bytes(data, safe_title, img_path)
+            logger.info("render succeeded request_id=%s output=docx", request_id)
             return Response(
                 docx_bytes,
                 200,
@@ -105,6 +121,7 @@ async def render(
 
         html = build_html(data, title=safe_title, img_b64=img_b64, img_mime=img_mime)
         pdf_bytes = render_pdf_bytes(html)
+        logger.info("render succeeded request_id=%s output=pdf", request_id)
         return Response(
             pdf_bytes,
             200,
@@ -119,9 +136,7 @@ async def render(
             detail=exc.detail,
         )
     finally:
+        # Temp file cleanup failure should not hide the response.
         if img_path and os.path.exists(img_path):
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(img_path)
-            except OSError:
-                # Temp file cleanup failure should not hide the response.
-                pass

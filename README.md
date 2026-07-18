@@ -95,8 +95,41 @@ If you send a simple JSON dict without sections, keys will be rendered as headin
 
 **Image Guidelines**
 ```
-Supported formats: PNG, JPEG (both PDF and DOCX).
+Supported formats: PNG, JPEG, WEBP, GIF, SVG.
 SVG: works in PDF but not in DOCX (raises error).
 Images are scaled to page width (max-width:100%) and centered.
-Keep file size reasonable (<1 MB recommended)
+Extension and file content are both validated; unrecognized or
+mismatched files are rejected. Max upload size: 5 MB.
 ```
+
+---
+
+## Project Structure
+
+- `main.py` — FastAPI app factory, router and rate-limiter registration.
+- `config.py` — shared config: wkhtmltopdf path/options, rate limiter instance.
+- `schemas.py` — Pydantic models for the structured `sections` document format.
+- `routes/` — thin route handlers (`/health`, `/render`); validates input, delegates, returns response.
+- `services/` — business logic: JSON parsing/validation, output normalization, error mapping.
+- `renderers/` — HTML/PDF/DOCX generation from parsed JSON.
+- `utils/` — shared helpers: HTML escaping, image upload validation and temp-file handling.
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `WKHTMLTOPDF_PATH` | No | Path to the `wkhtmltopdf` binary. Only needed if it's not on `PATH` (e.g. Windows local dev). Not needed in the Docker image, which installs it system-wide. |
+
+## Testing
+
+```
+uv sync --group dev
+uv run pytest -v
+uv run ruff check .
+```
+
+Tests cover JSON/output/image validation logic (`tests/test_services`, `tests/test_utils`) and the `/render` and `/health` routes end-to-end (`tests/test_api`), including the rate limiter. PDF rendering is tested with `pdfkit.from_string` mocked out — no `wkhtmltopdf` binary is required to run the suite.
+
+## Deployment
+
+The included `Dockerfile` builds a non-root, multi-stage image with `wkhtmltopdf` installed, exposing port `8000` with a `/health` healthcheck. `render.yaml` deploys that image to [Render](https://render.com) as a Docker web service.

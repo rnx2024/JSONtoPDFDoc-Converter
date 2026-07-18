@@ -4,3 +4,4 @@ __pycache__/
 .env
 *.pdf
 *.docx
+*.egg-info/

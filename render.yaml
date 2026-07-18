@@ -2,7 +2,7 @@ services:
   - type: web
     name: my-fastapi-app
     env: docker
-    repo: https://github.com/yourname/yourrepo
+    repo: https://github.com/rnx2024/JSONtoPDFDoc-Converter
     branch: main
     plan: free
     dockerfilePath: ./Dockerfile
@@ -13,5 +13,3 @@ services:
     envVars:
       - key: ENV
         value: production
-      - key: SECRET_KEY
-        sync: false       # mark as secret, set in Render dashboard
