@@ -1,10 +1,10 @@
-import contextlib
 import logging
-import os
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse, Response
 
+from auth import verify_api_key
 from config import limiter
 from services.render_service import (
     ServiceError,
@@ -17,7 +17,7 @@ from services.render_service import (
     render_pdf_bytes,
     validate_image_for_output,
 )
-from utils.images import ImageValidationError, save_temp_upload
+from utils.images import ImageValidationError, validate_and_read_image
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def _error_response(
 async def health() -> dict:
     return {"ok": True}
 
-@router.post("/render")
+@router.post("/render", dependencies=[Depends(verify_api_key)])
 @limiter.limit("10/minute")
 async def render(
     # Accept EITHER JSON text OR JSON file
@@ -89,20 +89,12 @@ async def render(
             detail=exc.detail,
         )
 
-    # Save image if provided
     try:
-        img_path, img_ext, img_b64, img_mime = save_temp_upload(image)
+        img_bytes, img_ext, img_b64, img_mime = await validate_and_read_image(image)
     except ImageValidationError as exc:
         return _error_response(
             error="INVALID_IMAGE",
             status_code=400,
-            request_id=request_id,
-            detail=str(exc),
-        )
-    except OSError as exc:
-        return _error_response(
-            error="IMAGE_UPLOAD_SAVE_FAILED",
-            status_code=500,
             request_id=request_id,
             detail=str(exc),
         )
@@ -113,7 +105,9 @@ async def render(
         safe_title = title.strip() or "Document"
 
         if normalized_output == "docx":
-            docx_bytes = render_docx_output_bytes(data, safe_title, img_path, style)
+            docx_bytes = await run_in_threadpool(
+                render_docx_output_bytes, data, safe_title, img_bytes, style
+            )
             logger.info("render succeeded request_id=%s output=docx", request_id)
             return Response(
                 docx_bytes,
@@ -123,7 +117,7 @@ async def render(
             )
 
         html = build_html(data, title=safe_title, img_b64=img_b64, img_mime=img_mime, style=style)
-        pdf_bytes = render_pdf_bytes(html, style.margin)
+        pdf_bytes = await run_in_threadpool(render_pdf_bytes, html, style.margin)
         logger.info("render succeeded request_id=%s output=pdf", request_id)
         return Response(
             pdf_bytes,
@@ -138,8 +132,3 @@ async def render(
             request_id=request_id,
             detail=exc.detail,
         )
-    finally:
-        # Temp file cleanup failure should not hide the response.
-        if img_path and os.path.exists(img_path):
-            with contextlib.suppress(OSError):
-                os.unlink(img_path)

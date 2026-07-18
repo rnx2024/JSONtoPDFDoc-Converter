@@ -17,11 +17,11 @@ _ALIGNMENT_BY_IMAGE_POSITION = {
 }
 
 
-def _add_image(doc: Any, img_path: str, image_position: str) -> None:
+def _add_image(doc: Any, img_bytes: bytes, image_position: str) -> None:
     # DOCX has no CSS-style float/text-wrap; left/right only align the image,
     # they don't wrap surrounding text around it like the PDF renderer does.
-    with contextlib.suppress(FileNotFoundError, UnrecognizedImageError, ValueError):
-        doc.add_picture(img_path, width=Inches(6.0))
+    with contextlib.suppress(UnrecognizedImageError, ValueError):
+        doc.add_picture(io.BytesIO(img_bytes), width=Inches(6.0))
         doc.paragraphs[-1].alignment = _ALIGNMENT_BY_IMAGE_POSITION.get(
             image_position, WD_ALIGN_PARAGRAPH.CENTER
         )
@@ -40,7 +40,7 @@ def _apply_indent(paragraph: Any, indent: float) -> None:
 def render_docx_bytes(
     data: dict[str, Any],
     title: str,
-    img_path: str | None,
+    img_bytes: bytes | None,
     style: DocumentStyle,
 ) -> bytes:
     doc = Document()
@@ -52,8 +52,8 @@ def render_docx_bytes(
 
     doc.add_heading(title, level=1)
 
-    if img_path and style.image_position != "bottom":
-        _add_image(doc, img_path, style.image_position)
+    if img_bytes and style.image_position != "bottom":
+        _add_image(doc, img_bytes, style.image_position)
 
     if isinstance(data, dict) and "sections" in data and isinstance(data["sections"], list):
         for s in data["sections"]:
@@ -99,8 +99,8 @@ def render_docx_bytes(
                 r[0].text = str(k)
                 r[1].text = str(v)
 
-    if img_path and style.image_position == "bottom":
-        _add_image(doc, img_path, style.image_position)
+    if img_bytes and style.image_position == "bottom":
+        _add_image(doc, img_bytes, style.image_position)
 
     output = io.BytesIO()
     doc.save(output)

@@ -1,7 +1,7 @@
 # JSON → PDF / DOCX Converter API
 
 A FastAPI service that accepts JSON data (and optional images) and generates professional PDF or DOCX reports.  
-Internally, the service transforms JSON into styled HTML, then renders it with **wkhtmltopdf** (for PDFs) or **python-docx** (for DOCX).
+Internally, the service transforms JSON into styled HTML, then renders it with **WeasyPrint** (for PDFs) or **python-docx** (for DOCX).
 
 ---
 
@@ -20,26 +20,16 @@ Internally, the service transforms JSON into styled HTML, then renders it with *
 ```
 uv sync
 ```
-Your pyproject.toml must include:
-```
-dependencies = [
-  "fastapi",
-  "uvicorn[standard]",
-  "pdfkit",
-  "python-docx",
-  "python-multipart",
-  "python-dotenv"
-]
-```
-**2. Install wkhtmltopdf system binary**
-```
-Windows: Download and install to
-C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe
 
-Add the bin folder to your PATH or set in .env:
+**2. Install WeasyPrint's native dependencies**
 
-WKHTMLTOPDF_PATH=C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe
-```
+WeasyPrint needs Pango (a text-layout library) installed at the OS level — `pip`/`uv` alone can't provide this.
+
+- **Docker**: nothing to do — the `Dockerfile` installs the required `libpango`/`libharfbuzz` packages already.
+- **Linux**: `apt install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0` (Debian/Ubuntu) or your distro's equivalent.
+- **macOS**: `brew install pango`.
+- **Windows**: native Windows needs [MSYS2](https://www.msys2.org/) — install it with default options, then from the MSYS2 shell run `pacman -S mingw-w64-x86_64-pango`. See [WeasyPrint's Windows install docs](https://doc.courtbouillon.org/weasyprint/stable/first_steps.html#windows) if you hit DLL-loading errors — you may need to set `WEASYPRINT_DLL_DIRECTORIES` to point at the MSYS2 install path.
+
 **3. Run app**
 ```
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
@@ -49,9 +39,9 @@ Visit http://127.0.0.1:8000/docs
  for interactive API docs.
 
 API Endpoints
-GET /health
-POST /render
- - Generate a report.
+GET /v1/health
+POST /v1/render
+ - Generate a report. Requires an `x-api-key` header matching the server's configured `API_KEY`.
  - Form-data fields:
 ```
 json_text (string) — JSON content inline (alternative to file).
@@ -127,19 +117,27 @@ mismatched files are rejected. Max upload size: 5 MB.
 
 ## Project Structure
 
-- `main.py` — FastAPI app factory, router and rate-limiter registration.
-- `config.py` — shared config: wkhtmltopdf path/options, rate limiter instance.
+- `main.py` — FastAPI app factory, router (mounted at `/v1`), rate-limiter registration, Redis startup check, Sentry init.
+- `auth.py` — API-key verification dependency for protected routes.
+- `config.py` — single source of truth for all environment configuration, via a `pydantic-settings` `Settings` class; also builds the shared rate-limiter instance and retry constants.
+- `adapters/` — external service integrations; `adapters/redis.py` holds the Redis connectivity check (retryguard + tenacity) and its custom exception-classification rule.
 - `schemas.py` — Pydantic models for the structured `sections` document format.
-- `routes/` — thin route handlers (`/health`, `/render`); validates input, delegates, returns response.
+- `routes/` — thin route handlers (`/v1/health`, `/v1/render`); validates input, delegates, returns response.
 - `services/` — business logic: JSON parsing/validation, output normalization, error mapping.
 - `renderers/` — HTML/PDF/DOCX generation from parsed JSON.
-- `utils/` — shared helpers: HTML escaping, image upload validation and temp-file handling.
+- `utils/` — shared helpers: HTML escaping, image upload validation (in-memory, no temp files).
 
 ## Environment Variables
 
+All environment variables are read in one place: `config.py`'s `Settings` class (backed by `pydantic-settings`, which also loads a local `.env` file automatically).
+
 | Variable | Required | Description |
 |---|---|---|
-| `WKHTMLTOPDF_PATH` | No | Path to the `wkhtmltopdf` binary. Only needed if it's not on `PATH` (e.g. Windows local dev). Not needed in the Docker image, which installs it system-wide. |
+| `API_KEY` | Yes | Shared secret clients must send as `x-api-key` to call `POST /v1/render`. If unset, that endpoint returns 503. |
+| `REDIS_URL` | Yes | Redis connection string backing distributed rate limiting. The app fails to start if this isn't set — there's no in-memory fallback. |
+| `LOG_LEVEL` | No | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Defaults to `INFO`. |
+| `SENTRY_DSN` | No | Sentry error-tracking DSN. Sentry is fully inert (no-op) if this isn't set — local dev and CI never send data. |
+| `ENV` | No | Environment name (`development`, `staging`, `production`) attached to Sentry events. Defaults to `development`. |
 
 ## Testing
 
@@ -149,8 +147,8 @@ uv run pytest -v
 uv run ruff check .
 ```
 
-Tests cover JSON/output/image/style validation logic (`tests/test_services`, `tests/test_utils`), HTML/DOCX rendering behavior including margins, image position, and indentation (`tests/test_renderers`), and the `/render` and `/health` routes end-to-end (`tests/test_api`), including the rate limiter. PDF rendering is tested with `pdfkit.from_string` mocked out — no `wkhtmltopdf` binary is required to run the suite.
+Tests cover JSON/output/image/style validation logic (`tests/test_services`, `tests/test_utils`), HTML/DOCX rendering behavior including margins, image position, and indentation (`tests/test_renderers`), and the `/v1/render` and `/v1/health` routes end-to-end (`tests/test_api`), including auth and the rate limiter. PDF rendering is tested with `weasyprint.HTML.write_pdf` mocked out — no native WeasyPrint libraries are required to run the suite, but a reachable Redis (`REDIS_URL`) is, since the app now fails to start without one. Locally, that's easiest via a throwaway container: `docker run --rm -p 6379:6379 redis:7-alpine`.
 
 ## Deployment
 
-The included `Dockerfile` builds a non-root, multi-stage image with `wkhtmltopdf` installed, exposing port `8000` with a `/health` healthcheck. `render.yaml` deploys that image to [Render](https://render.com) as a Docker web service.
+The included `Dockerfile` builds a non-root, multi-stage image with WeasyPrint's native dependencies installed, exposing port `8000` with a `/v1/health` healthcheck. `render.yaml` deploys that image to [Render](https://render.com) as a Docker web service.
