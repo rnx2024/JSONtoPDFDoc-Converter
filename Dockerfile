@@ -41,13 +41,16 @@ FROM debian:bookworm-slim
 # create non-root user
 RUN useradd -m -r -s /usr/sbin/nologin app
 
-# install WeasyPrint's runtime libs and fonts (runtime only)
+# install CA certs (needed for outbound TLS: Redis over rediss://, Sentry
+# ingestion over HTTPS), WeasyPrint's runtime libs, and fonts (runtime only)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
       curl \
       libpango-1.0-0 \
       libpangoft2-1.0-0 \
       libharfbuzz-subset0 \
       fonts-dejavu \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # copy Python runtime and app from builder
