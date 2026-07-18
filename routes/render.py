@@ -9,6 +9,7 @@ from config import limiter
 from services.render_service import (
     ServiceError,
     build_html,
+    extract_style,
     normalize_output,
     parse_json_bytes,
     parse_json_text,
@@ -78,6 +79,8 @@ async def render(
                 status_code=400,
                 request_id=request_id,
             )
+
+        style = extract_style(data)
     except ServiceError as exc:
         return _error_response(
             error=exc.code,
@@ -110,7 +113,7 @@ async def render(
         safe_title = title.strip() or "Document"
 
         if normalized_output == "docx":
-            docx_bytes = render_docx_output_bytes(data, safe_title, img_path)
+            docx_bytes = render_docx_output_bytes(data, safe_title, img_path, style)
             logger.info("render succeeded request_id=%s output=docx", request_id)
             return Response(
                 docx_bytes,
@@ -119,8 +122,8 @@ async def render(
                 media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
 
-        html = build_html(data, title=safe_title, img_b64=img_b64, img_mime=img_mime)
-        pdf_bytes = render_pdf_bytes(html)
+        html = build_html(data, title=safe_title, img_b64=img_b64, img_mime=img_mime, style=style)
+        pdf_bytes = render_pdf_bytes(html, style.margin)
         logger.info("render succeeded request_id=%s output=pdf", request_id)
         return Response(
             pdf_bytes,
