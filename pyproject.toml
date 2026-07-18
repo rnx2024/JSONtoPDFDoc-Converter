@@ -2,13 +2,22 @@
 name = "json-image-doc-app"
 version = "0.1.0"
 description = "Convert JSON + optional image into PDF or DOCX using FastAPI"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "python-docx>=1.1",
     "pdfkit>=1.0",
     "python-multipart>=0.0.9",
+    "slowapi>=0.1.9",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.6",
 ]
 
 # Flat layout: explicitly declare packages and modules
@@ -17,6 +26,19 @@ package-dir = {"" = "."}
 packages = ["routes", "services", "renderers", "utils"]
 py-modules = ["main", "config", "schemas"]
 include-package-data = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+# B008: FastAPI's Form()/File()/Depends() are meant to be called as default
+# argument values -- that's the framework's documented DI pattern, not a bug.
+ignore = ["B008"]
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

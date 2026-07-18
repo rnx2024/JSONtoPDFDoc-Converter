@@ -1,5 +1,7 @@
 import pdfkit
-from config import PDFKIT_CONFIG, PDF_OPTIONS
+
+from config import PDF_OPTIONS, PDFKIT_CONFIG
+
 
 def html_to_pdf_bytes(html: str) -> bytes:
     return pdfkit.from_string(
