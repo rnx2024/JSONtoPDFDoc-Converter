@@ -13,3 +13,9 @@ services:
     envVars:
       - key: ENV
         value: production
+      - key: REDIS_URL
+        sync: false       # mark as secret, set in Render dashboard
+      - key: API_KEY
+        sync: false       # mark as secret, set in Render dashboard
+      - key: SENTRY_DSN
+        sync: false       # optional; leave unset to disable Sentry

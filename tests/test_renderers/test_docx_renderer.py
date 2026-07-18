@@ -1,6 +1,4 @@
 import io
-import os
-import tempfile
 
 import pytest
 from docx import Document
@@ -32,12 +30,8 @@ def _assert_mm(length, expected_mm: float) -> None:
 
 
 @pytest.fixture
-def png_path():
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tf:
-        tf.write(_PNG_BYTES)
-        name = tf.name
-    yield name
-    os.unlink(tf.name)
+def png_bytes():
+    return _PNG_BYTES
 
 
 def _find_image_paragraph(doc):
@@ -77,18 +71,18 @@ def test_custom_margin():
         ("right", WD_ALIGN_PARAGRAPH.RIGHT),
     ],
 )
-def test_image_alignment_matches_position(png_path, position, expected_alignment):
+def test_image_alignment_matches_position(png_bytes, position, expected_alignment):
     style = DocumentStyle(image_position=position)
-    out = render_docx_bytes(DATA, "T", png_path, style)
+    out = render_docx_bytes(DATA, "T", png_bytes, style)
     doc = Document(io.BytesIO(out))
     image_paragraph = _find_image_paragraph(doc)
     assert image_paragraph is not None
     assert image_paragraph.alignment == expected_alignment
 
 
-def test_bottom_position_places_image_after_sections(png_path):
+def test_bottom_position_places_image_after_sections(png_bytes):
     style = DocumentStyle(image_position="bottom")
-    out = render_docx_bytes(DATA, "T", png_path, style)
+    out = render_docx_bytes(DATA, "T", png_bytes, style)
     doc = Document(io.BytesIO(out))
     texts = [p.text for p in doc.paragraphs]
     image_index = next(i for i, p in enumerate(doc.paragraphs) if "graphicData" in p._p.xml)

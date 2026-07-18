@@ -41,12 +41,13 @@ FROM debian:bookworm-slim
 # create non-root user
 RUN useradd -m -r -s /usr/sbin/nologin app
 
-# install wkhtmltopdf and fonts (runtime only)
+# install WeasyPrint's runtime libs and fonts (runtime only)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl \
-      wkhtmltopdf \
+      libpango-1.0-0 \
+      libpangoft2-1.0-0 \
+      libharfbuzz-subset0 \
       fonts-dejavu \
-      xfonts-base \
     && rm -rf /var/lib/apt/lists/*
 
 # copy Python runtime and app from builder
@@ -59,9 +60,9 @@ USER app
 
 EXPOSE 8000
 
-# app exposes GET /health
+# app exposes GET /v1/health
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s CMD \
-  curl -fsS http://127.0.0.1:8000/health || exit 1
+  curl -fsS http://127.0.0.1:8000/v1/health || exit 1
 
 # prefer uvicorn over the fastapi CLI
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

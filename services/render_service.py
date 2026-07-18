@@ -102,17 +102,20 @@ def build_html(
 def render_pdf_bytes(html: str, margin: Margin) -> bytes:
     try:
         return html_to_pdf_bytes(html, margin=margin)
-    except (OSError, RuntimeError, ValueError) as exc:
+    except Exception as exc:
+        # WeasyPrint doesn't document a narrow exception hierarchy for
+        # rendering failures -- catch broadly at this third-party boundary so
+        # any unexpected failure becomes a clean 500 instead of a raw traceback.
         raise ServiceError("PDF_RENDER_FAILED", detail=str(exc), status_code=500) from exc
 
 
 def render_docx_output_bytes(
     data: dict[str, Any],
     title: str,
-    img_path: str | None,
+    img_bytes: bytes | None,
     style: DocumentStyle,
 ) -> bytes:
     try:
-        return render_docx_bytes(data, title=title, img_path=img_path, style=style)
-    except (FileNotFoundError, TypeError, ValueError) as exc:
+        return render_docx_bytes(data, title=title, img_bytes=img_bytes, style=style)
+    except (TypeError, ValueError) as exc:
         raise ServiceError("DOCX_RENDER_FAILED", detail=str(exc), status_code=500) from exc

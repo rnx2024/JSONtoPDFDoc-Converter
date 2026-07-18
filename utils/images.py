@@ -1,6 +1,5 @@
 import base64
 import os
-import tempfile
 
 from fastapi import UploadFile
 
@@ -38,11 +37,14 @@ def _matches_signature(ext: str, data: bytes) -> bool:
     return False
 
 
-def _read_bounded(image: UploadFile, max_bytes: int) -> bytes:
+async def _read_bounded(image: UploadFile, max_bytes: int) -> bytes:
+    # image.read() is Starlette's async-safe read -- it's dispatched to a
+    # worker thread internally, so this doesn't block the event loop the way
+    # calling image.file.read() directly would.
     chunks = []
     total = 0
     while True:
-        chunk = image.file.read(_READ_CHUNK_BYTES)
+        chunk = await image.read(_READ_CHUNK_BYTES)
         if not chunk:
             break
         total += len(chunk)
@@ -52,9 +54,9 @@ def _read_bounded(image: UploadFile, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
-def save_temp_upload(
+async def validate_and_read_image(
     image: UploadFile | None,
-) -> tuple[str | None, str | None, str | None, str | None]:
+) -> tuple[bytes | None, str | None, str | None, str | None]:
     if not image:
         return None, None, None, None
 
@@ -63,15 +65,10 @@ def save_temp_upload(
     if ext not in ALLOWED_IMAGE_EXTENSIONS:
         raise ImageValidationError(f"Unsupported image extension: {ext or '(none)'}")
 
-    b = _read_bounded(image, MAX_IMAGE_BYTES)
-    if not _matches_signature(ext, b):
+    img_bytes = await _read_bounded(image, MAX_IMAGE_BYTES)
+    if not _matches_signature(ext, img_bytes):
         raise ImageValidationError("Image content does not match its extension")
 
     mime_type = image.content_type or DEFAULT_MIME_BY_EXTENSION.get(ext, "image/png")
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tf:
-        tf.write(b)
-        tf_name = tf.name
-
-    b64 = base64.b64encode(b).decode("ascii")
-    return tf_name, ext, b64, mime_type
+    b64 = base64.b64encode(img_bytes).decode("ascii")
+    return img_bytes, ext, b64, mime_type
