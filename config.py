@@ -15,9 +15,5 @@ PDFKIT_CONFIG = (
 PDF_OPTIONS = {
     "print-media-type": None,
     "enable-local-file-access": None,
-    "margin-top": "12mm",
-    "margin-right": "12mm",
-    "margin-bottom": "16mm",
-    "margin-left": "12mm",
     "page-size": "A4",
 }

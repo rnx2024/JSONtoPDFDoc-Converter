@@ -79,3 +79,47 @@ async def test_render_rate_limit_returns_429_after_ten_requests(client, monkeypa
 
     resp = await client.post("/render", data={"json_text": VALID_JSON, "output": "pdf"})
     assert resp.status_code == 429
+
+
+STYLED_JSON = (
+    '{"title": "Report", "sections": [{"type": "paragraph", "text": "hi", "indentation": 5}],'
+    ' "style": {"margin": {"top": 5, "right": 5, "bottom": 5, "left": 5},'
+    ' "indentation": 2, "image_position": "left"}}'
+)
+
+
+async def test_render_with_style_block_docx_success(client):
+    resp = await client.post("/render", data={"json_text": STYLED_JSON, "output": "docx"})
+    assert resp.status_code == 200
+
+
+async def test_render_with_style_block_pdf_success(client, monkeypatch):
+    monkeypatch.setattr("renderers.pdf_renderer.pdfkit.from_string", lambda *a, **k: b"%PDF-fake")
+    resp = await client.post("/render", data={"json_text": STYLED_JSON, "output": "pdf"})
+    assert resp.status_code == 200
+
+
+async def test_render_invalid_style_rejected(client):
+    invalid_json = '{"title": "t", "style": {"image_position": "diagonal"}}'
+    resp = await client.post("/render", data={"json_text": invalid_json, "output": "docx"})
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "INVALID_STYLE"
+
+
+CONTENT_STYLED_JSON = (
+    '{"title": "Report", "sections": ['
+    '{"heading": "H", "type": "paragraph", "text": "hi", "heading_level": 3},'
+    '{"type": "list", "items": ["a", "b"], "ordered": true}'
+    "]}"
+)
+
+
+async def test_render_with_heading_level_and_ordered_list_docx_success(client):
+    resp = await client.post("/render", data={"json_text": CONTENT_STYLED_JSON, "output": "docx"})
+    assert resp.status_code == 200
+
+
+async def test_render_with_heading_level_and_ordered_list_pdf_success(client, monkeypatch):
+    monkeypatch.setattr("renderers.pdf_renderer.pdfkit.from_string", lambda *a, **k: b"%PDF-fake")
+    resp = await client.post("/render", data={"json_text": CONTENT_STYLED_JSON, "output": "pdf"})
+    assert resp.status_code == 200

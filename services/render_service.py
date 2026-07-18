@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from renderers.docx_renderer import render_docx_bytes
 from renderers.html_renderer import json_to_html
 from renderers.pdf_renderer import html_to_pdf_bytes
-from schemas import StructuredDoc
+from schemas import DocumentStyle, Margin, StructuredDoc
 
 MAX_JSON_BYTES = 2_000_000  # 2 MB
 
@@ -29,6 +29,21 @@ def _validate_structured_doc_if_present(data: dict[str, Any]) -> None:
     except ValidationError as exc:
         raise ServiceError(
             "INVALID_STRUCTURED_DOC",
+            detail=exc.errors(include_url=False),
+            status_code=400,
+        ) from exc
+
+
+def extract_style(data: dict[str, Any]) -> DocumentStyle:
+    raw_style = data.get("style")
+    if raw_style is None:
+        return DocumentStyle()
+
+    try:
+        return DocumentStyle.model_validate(raw_style)
+    except ValidationError as exc:
+        raise ServiceError(
+            "INVALID_STYLE",
             detail=exc.errors(include_url=False),
             status_code=400,
         ) from exc
@@ -79,19 +94,25 @@ def build_html(
     title: str,
     img_b64: str | None,
     img_mime: str | None,
+    style: DocumentStyle,
 ) -> str:
-    return json_to_html(data, title=title, img_b64=img_b64, img_mime=img_mime)
+    return json_to_html(data, title=title, img_b64=img_b64, img_mime=img_mime, style=style)
 
 
-def render_pdf_bytes(html: str) -> bytes:
+def render_pdf_bytes(html: str, margin: Margin) -> bytes:
     try:
-        return html_to_pdf_bytes(html)
+        return html_to_pdf_bytes(html, margin=margin)
     except (OSError, RuntimeError, ValueError) as exc:
         raise ServiceError("PDF_RENDER_FAILED", detail=str(exc), status_code=500) from exc
 
 
-def render_docx_output_bytes(data: dict[str, Any], title: str, img_path: str | None) -> bytes:
+def render_docx_output_bytes(
+    data: dict[str, Any],
+    title: str,
+    img_path: str | None,
+    style: DocumentStyle,
+) -> bytes:
     try:
-        return render_docx_bytes(data, title=title, img_path=img_path)
+        return render_docx_bytes(data, title=title, img_path=img_path, style=style)
     except (FileNotFoundError, TypeError, ValueError) as exc:
         raise ServiceError("DOCX_RENDER_FAILED", detail=str(exc), status_code=500) from exc
